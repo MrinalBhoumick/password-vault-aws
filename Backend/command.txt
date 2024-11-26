@@ -1,0 +1,2 @@
+cd Backend
+aws cloudformation deploy --template-file cfn-template.yaml --stack-name Password-Crud-Application-Stack --capabilities CAPABILITY_IAM

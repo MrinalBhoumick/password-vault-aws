@@ -1,0 +1,183 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CRUD Application for Username and Password Management using Lambda, API Gateway, and DynamoDB
+
+Resources:
+  # DynamoDB Table
+  UserPasswordTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: UserPasswords
+      AttributeDefinitions:
+        - AttributeName: Username
+          AttributeType: S
+      KeySchema:
+        - AttributeName: Username
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  # Lambda Execution Role
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: PasswordManagementPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Scan
+                Resource: !GetAtt UserPasswordTable.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "arn:aws:logs:*:*:*"
+
+  # Lambda Function
+  PasswordManagementLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: Password-Management-Function
+      Handler: index.handler
+      Runtime: python3.13
+      Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: 512
+      Timeout: 120
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          from boto3.dynamodb.conditions import Key
+
+          # Initialize DynamoDB resource
+          dynamodb = boto3.resource('dynamodb')
+          table = dynamodb.Table('UserPasswords')
+
+          def construct_response(status_code, body, cors=True):
+              response = {
+                  "statusCode": status_code,
+                  "body": json.dumps(body),
+              }
+              if cors:
+                  response["headers"] = {
+                      "Access-Control-Allow-Origin": "*",
+                      "Access-Control-Allow-Methods": "OPTIONS, POST, GET, PUT, DELETE",
+                      "Access-Control-Allow-Headers": "Content-Type",
+                  }
+              return response
+
+          def handler(event, context):
+              try:
+                  http_method = event.get('httpMethod')
+                  body = json.loads(event.get('body') or '{}')
+
+                  if http_method == 'POST':
+                      # Create User
+                      username = body.get('Username')
+                      password = body.get('Password')
+                      if not username or not password:
+                          return construct_response(400, {"message": "Username and Password are required"})
+
+                      table.put_item(Item={'Username': username, 'Password': password})
+                      return construct_response(201, {"message": "User created"})
+
+                  elif http_method == 'GET':
+                      # Get User
+                      username = event.get('queryStringParameters', {}).get('Username')
+                      if not username:
+                          return construct_response(400, {"message": "Username is required"})
+
+                      response = table.get_item(Key={'Username': username})
+                      if 'Item' in response:
+                          return construct_response(200, response['Item'])
+                      else:
+                          return construct_response(404, {"message": "User not found"})
+
+                  elif http_method == 'PUT':
+                      # Update User
+                      username = body.get('Username')
+                      password = body.get('Password')
+                      if not username or not password:
+                          return construct_response(400, {"message": "Username and Password are required"})
+
+                      table.update_item(
+                          Key={'Username': username},
+                          UpdateExpression='SET Password = :password',
+                          ExpressionAttributeValues={':password': password},
+                      )
+                      return construct_response(200, {"message": "Password updated"})
+
+                  elif http_method == 'DELETE':
+                        # Delete User
+                        username = body.get('Username')
+                        if not username:
+                            return construct_response(400, {"message": "Username is required"})
+
+                        table.delete_item(Key={'Username': username})
+                        return construct_response(200, {"message": "User deleted"})
+
+
+
+                  elif http_method == 'OPTIONS':
+                      # Handle preflight CORS requests
+                      return construct_response(200, {"message": "CORS preflight"}, cors=True)
+
+                  else:
+                      return construct_response(405, {"message": "Method not allowed"})
+
+              except Exception as e:
+                  # Log exception and return error response
+                  print(f"Error: {str(e)}")
+                  return construct_response(500, {"message": "Internal server error"})
+
+
+
+  # API Gateway
+  PasswordApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: PasswordManagementApi
+
+  PasswordApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt PasswordApi.RootResourceId
+      PathPart: user
+      RestApiId: !Ref PasswordApi
+
+  PasswordApiMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: ANY
+      ResourceId: !Ref PasswordApiResource
+      RestApiId: !Ref PasswordApi
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Sub:
+            - arn:aws:apigateway:${Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+            - { Region: !Ref "AWS::Region", LambdaArn: !GetAtt PasswordManagementLambda.Arn }
+
+  # Permission for API Gateway to invoke Lambda
+  ApiGatewayLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt PasswordManagementLambda.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${PasswordApi}/*"
