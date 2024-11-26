@@ -5,7 +5,7 @@ on:
     branches:
       - release/production
     paths:
-      - Frontend/password-crud-app/**
+      - Frontend/**
 
 jobs:
   deploy-frontend:
@@ -22,12 +22,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd Frontend/password-crud-app
+          cd Frontend
           npm ci
 
       - name: Build the app
         run: |
-          cd Frontend/password-crud-app
+          cd Frontend
           npm run build
 
       - name: Configure AWS CLI
