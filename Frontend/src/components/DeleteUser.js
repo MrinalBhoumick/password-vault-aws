@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { TextField, Button, Snackbar, Alert, Stack } from "@mui/material";
+import { TextField, Button, Snackbar, Alert, Stack, Box, Typography } from "@mui/material";
 import axios from "axios";
 
 function DeleteUser() {
@@ -24,19 +24,36 @@ function DeleteUser() {
   };
 
   return (
-    <Stack spacing={3} alignItems="center">
-      <h2>Delete User</h2>
-      <TextField
-        label="Username"
-        variant="outlined"
-        value={Username}
-        onChange={(e) => setUsername(e.target.value)}
-        fullWidth
-        required
-      />
-      <Button variant="contained" color="secondary" onClick={deleteUser}>
-        Delete User
-      </Button>
+    <Box
+      sx={{
+        width: 400,
+        margin: "0 auto",
+        padding: 3,
+        borderRadius: 2,
+        boxShadow: 3,
+        backgroundColor: "white",
+        textAlign: "center",
+      }}
+    >
+      <Typography variant="h5" gutterBottom>Delete User</Typography>
+      <Stack spacing={2}>
+        <TextField
+          label="Username"
+          variant="outlined"
+          value={Username}
+          onChange={(e) => setUsername(e.target.value)}
+          fullWidth
+          required
+        />
+        <Button
+          variant="contained"
+          color="secondary"
+          onClick={deleteUser}
+          fullWidth
+        >
+          Delete User
+        </Button>
+      </Stack>
 
       <Snackbar
         open={feedback.open}
@@ -50,7 +67,7 @@ function DeleteUser() {
           {feedback.message}
         </Alert>
       </Snackbar>
-    </Stack>
+    </Box>
   );
 }
 

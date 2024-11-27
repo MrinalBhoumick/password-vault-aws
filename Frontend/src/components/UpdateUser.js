@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { TextField, Button, Snackbar, Alert, Stack } from "@mui/material";
+import { TextField, Button, Snackbar, Alert, Stack, Box, Typography } from "@mui/material";
 import axios from "axios";
 
 function UpdateUser() {
@@ -25,28 +25,44 @@ function UpdateUser() {
   };
 
   return (
-    <Stack spacing={3} alignItems="center">
-      <h2>Update User</h2>
-      <TextField
-        label="Username"
-        variant="outlined"
-        value={Username}
-        onChange={(e) => setUsername(e.target.value)}
-        fullWidth
-        required
-      />
-      <TextField
-        label="New Password"
-        type="password"
-        variant="outlined"
-        value={newPassword}
-        onChange={(e) => setNewPassword(e.target.value)}
-        fullWidth
-        required
-      />
-      <Button variant="contained" color="primary" onClick={updateUser}>
-        Update Password
-      </Button>
+    <Stack spacing={3} alignItems="center" sx={{ minHeight: "100vh", justifyContent: "center" }}>
+      <Box
+        sx={{
+          backgroundColor: "#fff",
+          boxShadow: 3,
+          borderRadius: 2,
+          padding: "30px",
+          width: "100%",
+          maxWidth: "400px",
+        }}
+      >
+        <Typography variant="h5" align="center" gutterBottom>
+          Update User
+        </Typography>
+
+        <TextField
+          label="Username"
+          variant="outlined"
+          value={Username}
+          onChange={(e) => setUsername(e.target.value)}
+          fullWidth
+          required
+          sx={{ marginBottom: 2 }}
+        />
+        <TextField
+          label="New Password"
+          type="password"
+          variant="outlined"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+          fullWidth
+          required
+          sx={{ marginBottom: 2 }}
+        />
+        <Button variant="contained" color="primary" fullWidth onClick={updateUser}>
+          Update Password
+        </Button>
+      </Box>
 
       <Snackbar
         open={feedback.open}

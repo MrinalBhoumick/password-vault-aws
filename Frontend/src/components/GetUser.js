@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { TextField, Button, Card, CardContent, Typography, Snackbar, Alert, Stack } from "@mui/material";
+import { TextField, Button, Snackbar, Alert, Stack, Box, Typography, Card, CardContent } from "@mui/material";
 import axios from "axios";
 
 function GetUser() {
@@ -24,24 +24,41 @@ function GetUser() {
   };
 
   return (
-    <Stack spacing={3} alignItems="center">
-      <h2>Get User</h2>
-      <TextField
-        label="Username"
-        variant="outlined"
-        value={Username}
-        onChange={(e) => setUsername(e.target.value)}
-        fullWidth
-        required
-      />
-      <Button variant="contained" color="primary" onClick={getUser}>
-        Get User
-      </Button>
+    <Box
+      sx={{
+        width: 400,
+        margin: "0 auto",
+        padding: 3,
+        borderRadius: 2,
+        boxShadow: 3,
+        backgroundColor: "white",
+        textAlign: "center",
+      }}
+    >
+      <Typography variant="h5" gutterBottom>Get User</Typography>
+      <Stack spacing={2}>
+        <TextField
+          label="Username"
+          variant="outlined"
+          value={Username}
+          onChange={(e) => setUsername(e.target.value)}
+          fullWidth
+          required
+        />
+        <Button
+          variant="contained"
+          color="primary"
+          onClick={getUser}
+          fullWidth
+        >
+          Get User
+        </Button>
+      </Stack>
 
       {userData && (
-        <Card style={{ width: "100%", maxWidth: "500px", marginTop: "20px" }}>
+        <Card sx={{ width: "100%", maxWidth: 500, marginTop: 2 }}>
           <CardContent>
-            <Typography variant="h6">User Details</Typography>
+            <Typography variant="h6" gutterBottom>User Details</Typography>
             <Typography variant="body1">Username: {userData.Username}</Typography>
             <Typography variant="body1">Password: {userData.Password}</Typography>
           </CardContent>
@@ -60,7 +77,7 @@ function GetUser() {
           {feedback.message}
         </Alert>
       </Snackbar>
-    </Stack>
+    </Box>
   );
 }
 
