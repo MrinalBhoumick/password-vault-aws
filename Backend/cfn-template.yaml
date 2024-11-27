@@ -45,6 +45,12 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: "arn:aws:logs:*:*:*"
+              - Effect: Allow
+                Action:
+                    - kms:Encrypt
+                    - kms:Decrypt
+                Resource: "arn:aws:kms:ap-south-1:510881116058:key/deb36398-458a-41d9-82ec-4a394f40b8bc"
+
 
   # Lambda Function
   PasswordManagementLambda:
@@ -56,71 +62,107 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       MemorySize: 512
       Timeout: 120
+      Environment:
+        Variables:
+          KMS_KEY_ID: arn:aws:kms:ap-south-1:510881116058:key/deb36398-458a-41d9-82ec-4a394f40b8bc
       Code:
         ZipFile: |
-          import json
-          import boto3
-          from boto3.dynamodb.conditions import Key
+            import json
+            import boto3
+            import base64
+            import os
+            from boto3.dynamodb.conditions import Key
 
-          # Initialize DynamoDB resource
-          dynamodb = boto3.resource('dynamodb')
-          table = dynamodb.Table('UserPasswords')
+            # Initialize AWS services
+            dynamodb = boto3.resource('dynamodb')
+            kms_client = boto3.client('kms')
+            table = dynamodb.Table('UserPasswords')
 
-          def construct_response(status_code, body, cors=True):
-              response = {
-                  "statusCode": status_code,
-                  "body": json.dumps(body),
-              }
-              if cors:
-                  response["headers"] = {
-                      "Access-Control-Allow-Origin": "*",
-                      "Access-Control-Allow-Methods": "OPTIONS, POST, GET, PUT, DELETE",
-                      "Access-Control-Allow-Headers": "Content-Type",
-                  }
-              return response
+            # Get KMS key ID from environment variable
+            KMS_KEY_ID = os.environ.get('KMS_KEY_ID')
 
-          def handler(event, context):
-              try:
-                  http_method = event.get('httpMethod')
-                  body = json.loads(event.get('body') or '{}')
+            def construct_response(status_code, body, cors=True):
+                response = {
+                    "statusCode": status_code,
+                    "body": json.dumps(body),
+                }
+                if cors:
+                    response["headers"] = {
+                        "Access-Control-Allow-Origin": "*",
+                        "Access-Control-Allow-Methods": "OPTIONS, POST, GET, PUT, DELETE",
+                        "Access-Control-Allow-Headers": "Content-Type",
+                    }
+                return response
 
-                  if http_method == 'POST':
-                      # Create User
-                      username = body.get('Username')
-                      password = body.get('Password')
-                      if not username or not password:
-                          return construct_response(400, {"message": "Username and Password are required"})
+            # Encrypt the raw password using KMS
+            def encrypt_password(raw_password: str) -> str:
+                response = kms_client.encrypt(
+                    KeyId=KMS_KEY_ID,
+                    Plaintext=raw_password.encode('utf-8')
+                )
+                encrypted_password = base64.b64encode(response['CiphertextBlob']).decode('utf-8')
+                return encrypted_password
 
-                      table.put_item(Item={'Username': username, 'Password': password})
-                      return construct_response(201, {"message": "User created"})
+            # Decrypt the encrypted password using KMS
+            def decrypt_password(encrypted_password: str) -> str:
+                encrypted_bytes = base64.b64decode(encrypted_password)
+                response = kms_client.decrypt(
+                    CiphertextBlob=encrypted_bytes
+                )
+                decrypted_password = response['Plaintext'].decode('utf-8')
+                return decrypted_password
 
-                  elif http_method == 'GET':
-                      # Get User
-                      username = event.get('queryStringParameters', {}).get('Username')
-                      if not username:
-                          return construct_response(400, {"message": "Username is required"})
+            def handler(event, context):
+                try:
+                    http_method = event.get('httpMethod')
+                    body = json.loads(event.get('body') or '{}')
 
-                      response = table.get_item(Key={'Username': username})
-                      if 'Item' in response:
-                          return construct_response(200, response['Item'])
-                      else:
-                          return construct_response(404, {"message": "User not found"})
+                    if http_method == 'POST':
+                        # Create User
+                        username = body.get('Username')
+                        password = body.get('Password')
+                        if not username or not password:
+                            return construct_response(400, {"message": "Username and Password are required"})
 
-                  elif http_method == 'PUT':
-                      # Update User
-                      username = body.get('Username')
-                      password = body.get('Password')
-                      if not username or not password:
-                          return construct_response(400, {"message": "Username and Password are required"})
+                        encrypted_password = encrypt_password(password)
+                        table.put_item(Item={'Username': username, 'Password': encrypted_password})
+                        return construct_response(201, {"message": "User created"})
 
-                      table.update_item(
-                          Key={'Username': username},
-                          UpdateExpression='SET Password = :password',
-                          ExpressionAttributeValues={':password': password},
-                      )
-                      return construct_response(200, {"message": "Password updated"})
+                    elif http_method == 'GET':
+                        # Get User
+                        username = event.get('queryStringParameters', {}).get('Username')
+                        if not username:
+                            return construct_response(400, {"message": "Username is required"})
 
-                  elif http_method == 'DELETE':
+                        response = table.get_item(Key={'Username': username})
+                        if 'Item' in response:
+                            user_data = response['Item']
+                            encrypted_password = user_data.get('Password', '')
+                            decrypted_password = decrypt_password(encrypted_password)
+                            user_data_response = {
+                                "Username": user_data.get("Username"),
+                                "Password": decrypted_password  # Decrypt and return the raw password
+                            }
+                            return construct_response(200, user_data_response)
+                        else:
+                            return construct_response(404, {"message": "User not found"})
+
+                    elif http_method == 'PUT':
+                        # Update User
+                        username = body.get('Username')
+                        password = body.get('Password')
+                        if not username or not password:
+                            return construct_response(400, {"message": "Username and Password are required"})
+
+                        encrypted_password = encrypt_password(password)
+                        table.update_item(
+                            Key={'Username': username},
+                            UpdateExpression='SET Password = :password',
+                            ExpressionAttributeValues={':password': encrypted_password},
+                        )
+                        return construct_response(200, {"message": "Password updated"})
+
+                    elif http_method == 'DELETE':
                         # Delete User
                         username = body.get('Username')
                         if not username:
@@ -129,19 +171,18 @@ Resources:
                         table.delete_item(Key={'Username': username})
                         return construct_response(200, {"message": "User deleted"})
 
+                    elif http_method == 'OPTIONS':
+                        # Handle preflight CORS requests
+                        return construct_response(200, {"message": "CORS preflight"}, cors=True)
 
+                    else:
+                        return construct_response(405, {"message": "Method not allowed"})
 
-                  elif http_method == 'OPTIONS':
-                      # Handle preflight CORS requests
-                      return construct_response(200, {"message": "CORS preflight"}, cors=True)
+                except Exception as e:
+                    # Log exception and return error response
+                    print(f"Error: {str(e)}")
+                    return construct_response(500, {"message": "Internal server error"})
 
-                  else:
-                      return construct_response(405, {"message": "Method not allowed"})
-
-              except Exception as e:
-                  # Log exception and return error response
-                  print(f"Error: {str(e)}")
-                  return construct_response(500, {"message": "Internal server error"})
 
 
 
