@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: CRUD Application for Username and Password Management using Lambda, API Gateway, DynamoDB, and KMS
+Description: CRUD Application for Username and Password Management using Lambda, API Gateway, and DynamoDB
 
 Resources:
   # DynamoDB Table
@@ -14,29 +14,6 @@ Resources:
         - AttributeName: Username
           KeyType: HASH
       BillingMode: PAY_PER_REQUEST
-
-  # KMS Key
-  PasswordKMSKey:
-    Type: AWS::KMS::Key
-    Properties:
-      Description: KMS Key for encrypting and decrypting user passwords
-      KeyPolicy:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
-            Action: "kms:*"
-            Resource: "*"
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action:
-              - "kms:Encrypt"
-              - "kms:Decrypt"
-              - "kms:GenerateDataKey"
-              - "kms:DescribeKey"
-            Resource: "*"
 
   # Lambda Execution Role
   LambdaExecutionRole:
@@ -68,13 +45,6 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: "arn:aws:logs:*:*:*"
-              - Effect: Allow
-                Action:
-                  - "kms:Encrypt"
-                  - "kms:Decrypt"
-                  - "kms:GenerateDataKey"
-                  - "kms:DescribeKey"
-                Resource: "*"
 
   # Lambda Function
   PasswordManagementLambda:
@@ -86,33 +56,15 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       MemorySize: 512
       Timeout: 120
-      Environment:
-        Variables:
-          KMS_KEY_ID: !Ref PasswordKMSKey
       Code:
         ZipFile: |
           import json
           import boto3
           from boto3.dynamodb.conditions import Key
 
-          # Initialize DynamoDB and KMS clients
+          # Initialize DynamoDB resource
           dynamodb = boto3.resource('dynamodb')
-          kms_client = boto3.client('kms')
           table = dynamodb.Table('UserPasswords')
-          kms_key_id = os.environ.get('KMS_KEY_ID')
-
-          def encrypt_password(password):
-              response = kms_client.encrypt(
-                  KeyId=kms_key_id,
-                  Plaintext=password
-              )
-              return response['CiphertextBlob']
-
-          def decrypt_password(encrypted_password):
-              response = kms_client.decrypt(
-                  CiphertextBlob=encrypted_password
-              )
-              return response['Plaintext'].decode('utf-8')
 
           def construct_response(status_code, body, cors=True):
               response = {
@@ -139,8 +91,7 @@ Resources:
                       if not username or not password:
                           return construct_response(400, {"message": "Username and Password are required"})
 
-                      encrypted_password = encrypt_password(password)
-                      table.put_item(Item={'Username': username, 'Password': encrypted_password})
+                      table.put_item(Item={'Username': username, 'Password': password})
                       return construct_response(201, {"message": "User created"})
 
                   elif http_method == 'GET':
@@ -151,9 +102,6 @@ Resources:
 
                       response = table.get_item(Key={'Username': username})
                       if 'Item' in response:
-                          encrypted_password = response['Item']['Password']
-                          decrypted_password = decrypt_password(encrypted_password)
-                          response['Item']['Password'] = decrypted_password
                           return construct_response(200, response['Item'])
                       else:
                           return construct_response(404, {"message": "User not found"})
@@ -165,22 +113,23 @@ Resources:
                       if not username or not password:
                           return construct_response(400, {"message": "Username and Password are required"})
 
-                      encrypted_password = encrypt_password(password)
                       table.update_item(
                           Key={'Username': username},
                           UpdateExpression='SET Password = :password',
-                          ExpressionAttributeValues={':password': encrypted_password},
+                          ExpressionAttributeValues={':password': password},
                       )
                       return construct_response(200, {"message": "Password updated"})
 
                   elif http_method == 'DELETE':
-                      # Delete User
-                      username = body.get('Username')
-                      if not username:
-                          return construct_response(400, {"message": "Username is required"})
+                        # Delete User
+                        username = body.get('Username')
+                        if not username:
+                            return construct_response(400, {"message": "Username is required"})
 
-                      table.delete_item(Key={'Username': username})
-                      return construct_response(200, {"message": "User deleted"})
+                        table.delete_item(Key={'Username': username})
+                        return construct_response(200, {"message": "User deleted"})
+
+
 
                   elif http_method == 'OPTIONS':
                       # Handle preflight CORS requests
@@ -193,6 +142,8 @@ Resources:
                   # Log exception and return error response
                   print(f"Error: {str(e)}")
                   return construct_response(500, {"message": "Internal server error"})
+
+
 
   # API Gateway
   PasswordApi:
